@@ -1,0 +1,26 @@
+name: PowerShell Quality
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse and analyze PowerShell
+        shell: pwsh
+        run: |
+          $failed = $false
+          Get-ChildItem . -Filter '*.ps1' -File -Recurse | ForEach-Object {
+            $tokens = $null; $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName,[ref]$tokens,[ref]$errors) | Out-Null
+            foreach ($errorRecord in @($errors)) { $failed = $true; Write-Error "$($_.FullName):$($errorRecord.Extent.StartLineNumber): $($errorRecord.Message)" }
+          }
+          if ($failed) { throw 'PowerShell parser validation failed.' }
+          Set-PSRepository PSGallery -InstallationPolicy Trusted
+          Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
+          $findings = @(Invoke-ScriptAnalyzer -Path . -Recurse -Severity Error)
+          if ($findings.Count -gt 0) { $findings | Format-Table -AutoSize | Out-String | Write-Host; throw 'PSScriptAnalyzer reported errors.' }
